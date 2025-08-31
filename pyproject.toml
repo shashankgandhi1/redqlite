@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rqlite"
+version = "0.1.0"
+description = "A lightweight Messaging queue implementation using Redis for producer-worker-subscriber messaging."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    # "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "redis==6.2.0",
+]
+
+[[project.authors]]
+name = "Shashank Gandhi"
+
+
+[project.urls]
+"Homepage" = "https://github.com/shashankgandhi1/rqlite"
+"Bug Tracker" = "https://github.com/shashankgandhi1/rqlite/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rqlite*"]
