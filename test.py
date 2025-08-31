@@ -1,6 +1,6 @@
-from rqlite.producer import RQProducer
-from rqlite.worker import RQWorker, RQWorkerPool
-from rqlite.subscriber import RQSubscriber
+from redqlite.producer import RQProducer
+from redqlite.worker import RQWorker, RQWorkerPool
+from redqlite.subscriber import RQSubscriber
 
 import logging
 import time
