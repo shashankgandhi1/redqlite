@@ -1,18 +1,25 @@
 from redqlite.producer import RQProducer
 from redqlite.worker import RQWorker, RQWorkerPool
 from redqlite.subscriber import RQSubscriber
+from redqlite.serializers import StringSerializer
+from redqlite.utils import create_topic
 
 import logging
 import time
 
+from redis import Redis
+
 logging.basicConfig(level=logging.INFO)
 
-rqproducer = RQProducer()
+create_topic(Redis(host="localhost", port=6379), "allmsgs", 4)
+
+rqproducer = RQProducer(serializer=StringSerializer)
 
 
 def callback_fn(msg, **kwargs):
     time.sleep(0.2)
     print(msg)
+
 
 rqworker = RQWorker(topic="allmsgs", timeout_ms=10000, callback=callback_fn)
 rqworker_pool = RQWorkerPool(topic="allmsgs", timeout_ms=10000, callback=callback_fn, num_workers=2)

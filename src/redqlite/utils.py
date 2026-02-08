@@ -3,11 +3,33 @@ import json
 import hashlib
 from uuid import uuid4
 from typing import Callable
+import re
 
-from .config import _get_topic_meta_key
+from .config import _get_topic_meta_key, TOPIC_REGEX, CHANNEL_REGEX
+
+def _validate_topic(topic: str) -> bool:
+    if not topic:
+        return False
+
+    if re.fullmatch(TOPIC_REGEX, topic):
+        return True
+
+    return False
+
+def _validate_channel(channel: str) -> bool:
+    if not channel:
+        return False
+
+    if re.fullmatch(CHANNEL_REGEX, channel):
+        return True
+
+    return False
 
 
 def create_topic(redis_conn: Redis, topic: str, num_partitions: int = 1):
+    if not _validate_topic(topic):
+        raise Exception(f"ERROR: Cannot create topic '{topic}'. Topic name can only be alphanumeric")
+
     metadata = {
         "name": topic,
         "partitions": num_partitions
