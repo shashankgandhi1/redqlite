@@ -109,6 +109,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Pull requests are welcome. For major changes, please open an issue first to discuss what you’d like to change.
 
 ## Contact
-Created by **Shashank Gandhi** – feel free to reach out by [opening an issue](https://github.com/shashankgandhi1/redqlite/issues) or by [contacting the author](https://github.com/shashankgandhi1).
+Feel free to reach out by [opening an issue](https://github.com/shashankgandhi1/redqlite/issues) or by [contacting the author](https://github.com/shashankgandhi1).
 
 
