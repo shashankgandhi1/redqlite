@@ -5,12 +5,12 @@ import time
 import logging
 import traceback
 
-from .utils import _gen_id
+from .utils import _gen_id, _validate_channel
 from .config import _get_channel_subscriber_key, _get_channel_data_subscriber_key
 
 
 class RQSubscriber:
-	def __init__(self,
+	def __init__(self, 
 				host: str = "localhost",
 				port: int = 6379,
 				username: str = None,
@@ -18,7 +18,7 @@ class RQSubscriber:
 				redis_conn: Redis = None,
 				channel: str = None,
 				callback: Callable = None,
-				serializer = None,
+				serializer=None,
 				timeout_ms: int = 10000,
 				poll_timeout_ms: int = 1000):
 		"""
@@ -31,15 +31,18 @@ class RQSubscriber:
 		- channel: Name of the channel to subscribe
 		- callback: Callback function executed on message poll
 		- serializer: Serializer class with deserialize method for the message
-        - timeout_ms: Timeout for the worker (in milliseconds)
-        - poll_timeout_ms: Sleep time (in milliseconds) for polling if no messages available
+		- timeout_ms: Timeout for the worker (in milliseconds)
+		- poll_timeout_ms: Sleep time (in milliseconds) for polling if no messages available
 		"""
 
 		if not channel:
-			raise Exception(f"Error: RQlite subscriber channel cannot be None")
+			raise Exception("Error: RQlite subscriber channel cannot be None")
 
-		if poll_timeout_ms >= timeout_ms:
-			raise Exception(f"ERROR: RQlite Subscriber's poll_timeout_ms must be less than timeout_ms")
+		if not _validate_channel(channel):
+			raise Exception(f"ERROR: RQLite subscriber cannot broadcast to channel '{channel}'. Channel name can only be alphanumeric")
+
+		if timeout_ms < 2 * poll_timeout_ms:
+			raise Exception("ERROR: RQLite worker pool cannot be initialized. Subscriber timeout_ms should be >= twice the poll_timeout_ms")
 
 		self.id = _gen_id()
 		self.channel = channel
@@ -57,7 +60,6 @@ class RQSubscriber:
 		self._thread = None
 		self._running = None
 		self._processing = None
-
 
 	def poll(self):
 		"""
@@ -80,7 +82,6 @@ class RQSubscriber:
 
 		return msg
 
-
 	def _spawn(self):
 		"""
 		Implements setting RQLite Subscriber key to Redis Server for broadcast to find
@@ -88,7 +89,7 @@ class RQSubscriber:
 		subscriber_key = _get_channel_subscriber_key(self.channel, self.id)
 		data_key = _get_channel_data_subscriber_key(self.channel, self.id)
 
-		self.conn.set(subscriber_key, data_key, ex=int(self.timeout_ms/1000))
+		self.conn.set(subscriber_key, data_key, ex=int(self.timeout_ms / 1000))
 		return data_key
 
 	def _remove(self):
@@ -99,18 +100,16 @@ class RQSubscriber:
 		self.conn.delete(subscriber_key)
 		return True
 
-
 	def beat(self):
 		"""
 		Implements sending heartbeat to keep RQLite Subscriber alive 
 		"""
 		subscriber_key = _get_channel_subscriber_key(self.channel, self.id)
-		is_key = self.conn.expire(subscriber_key, int(self.timeout_ms/1000))
+		is_key = self.conn.expire(subscriber_key, int(self.timeout_ms / 1000))
 		if not is_key:
 			raise Exception(f"ERROR: Cannot send heartbeat for RQLite subscriber '{self.id}'. Subscriber has timed out")
 
 		return True
-
 
 	def commit(self):
 		"""
@@ -119,28 +118,25 @@ class RQSubscriber:
 		"""
 		self.beat()
 
-
 	def run(self):
 		while self._running:
-		    try:
-		        msg = self.poll()
+			try:
+				msg = self.poll()
 
-		        if not msg:
-		            time.sleep(self.poll_timeout_ms / 1000.)
-		            continue
+				if not msg:
+					time.sleep(self.poll_timeout_ms / 1000.)
+					continue
 
-		        self._processing = True
-		        if self.callback:
-		            self.callback(msg, heartbeat=self.beat)
-		        logging.info(f"Subscriber '{self.id}'' finished processing message from channel '{self.channel}'")
-		    except Exception as ex:
-		        traceback.print_exc()
-		        logging.error(f"{type(ex).__name__}: {str(ex)}. Failed to run callback function '{self.callback.__name__}' for message '{msg}'.")
-		    finally:
-		        self.commit()
-		        self._processing = False
-
-
+				self._processing = True
+				if self.callback:
+					self.callback(msg, heartbeat=self.beat)
+				logging.info(f"Subscriber '{self.id}'' finished processing message from channel '{self.channel}'")
+			except Exception as ex:
+				traceback.print_exc()
+				logging.error(f"{type(ex).__name__}: {str(ex)}. Failed to run callback function '{self.callback.__name__}' for message '{msg}'.")
+			finally:
+				self.commit()
+				self._processing = False
 
 	def start(self):
 		"""
@@ -149,16 +145,19 @@ class RQSubscriber:
 		logging.info(f"Staring RQLite Subscriber '{self.id}' listening on channel '{self.channel}'")
 		self._thread = threading.Thread(target=self.run, daemon=True)
 		self._running = True
+		self._spawn()
 		self._thread.start()
-
 
 	def stop(self, safe: bool = True):
 		"""
-        Stop subscriber thread
-        - safe: Waits for current message to finish processing and remove subscriber before stopping.
-        """
+		Stop subscriber thread
+		- safe: Waits for current message to finish processing and remove subscriber before stopping.
+		"""
 		logging.info(f"Stopping RQLite Subscriber '{self.id}' listening on channel '{self.channel}'")
 		self._running = False
-		if safe:
-		    self._thread.join()
+		if self._thread:
+			if safe:
+				self._thread.join()
+			self._thread = None
+		
 		self._remove()

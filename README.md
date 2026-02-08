@@ -1,6 +1,6 @@
 # RedQLite
 
-A lightweight Messaging queue implementation using Redis for producer-worker messaging.
+A lightweight Messaging queue implementation using Redis for producer-worker-subscriber messaging.
 
 ---
 
@@ -8,11 +8,13 @@ A lightweight Messaging queue implementation using Redis for producer-worker mes
 
 - Redis-backed message queuing
 - Producer and worker interface
-- Lightweight and fast alternative to Kafka
+- Producer and subscriber interface
+- Lightweight and fast alternative to Kafka/Celery
 - Works for long running tasks
 - Provides configurable heartbeats from inside worker callback functions
 - Redis server required
-- Minimal setup — no Kafka or Zookeeper required
+- Minimal setup — no broker required
+
 
 ---
 
@@ -23,7 +25,7 @@ pip install redqlite
 ```
 
 ## How It Works
-This package simulates a basic Kafka-style messaging system using Redis lists.
+This package simulates a basic messaging system using Redis lists.
 It includes:
 
 A **Producer** that pushes messages to a Redis queue or broadcasts messages to all subscribers.
@@ -40,42 +42,60 @@ A **Subscriber** that consumes messages from channel specific message queue.
 # Import RQProducer class
 from redqlite.producer import RQProducer
 
-# Create a producer instance (assumes redis running on localhost:6379)
-rqproducer = RQProducer()
+# Create a producer instance
+rqproducer = RQProducer(host="localhost", port=6379)
 
 # Send a message
-rqproducer.send(topic="your_topic_name", message="hello world")
+rqproducer.send(topic="yourtopicname", message="hello world")
 
 # Broadcast message on a channel
-rqproducer.broadcast(channel="your_channel_name", message="hello world")
+rqproducer.broadcast(channel="yourchannelname", message="hello world")
 ```
 
 ### Example: Starting a Worker
 ```python
-# Import QWorker class
+# Import RQWorker class
 from redqlite.worker import RQWorker
 
 def callback_func(msg, **kwargs):
 	print(msg)
 
-# Create a worker instance (assumes redis running on localhost:6379)
-rqworker = RQWorker(topic="your_topic_name", callback=callback_func)
+# Create a worker instance
+## Provide your redis connection details or Redis connection pool object
+rqworker = RQWorker(host="localhost", port=6379, topic="yourtopicname", callback=callback_func)
 
 # Start worker thread
 rqworker.start()
 
 ```
 
-### Example: Starting a subscriber
+### Example: Starting a Worker Pool
 ```python
-# Import QSubscriber class
-from redqlite.subscriber import RQSubscriber
+# Import RQWorkerPool class
+from redqlite.worker import RQWorkerPool
 
 def callback_func(msg, **kwargs):
 	print(msg)
 
-# Create a worker instance (assumes redis running on localhost:6379)
-rqsubscriber = RQSubscriber(channel="your_channel_name", callback=callback_func)
+# Create a worker pool
+## Provide your redis connection details or Redis connection pool object
+rqworker_pool = RQWorkerPool(host="localhost", port=6379, topic="yourtopicname", callback=callback_func, num_workers=2)
+
+# Start worker pool
+rqworker_pool.start()
+```
+
+### Example: Starting a subscriber
+```python
+# Import QSubscriber class
+from redqlite.subscriber import RQSubscriber
+from redis import Redis
+
+def callback_func(msg, **kwargs):
+	print(msg)
+
+# Create a worker instance
+rqsubscriber = RQSubscriber(redis_conn=Redis(), channel="yourchannelname", callback=callback_func)
 
 # Start subscriber thread
 rqsubscriber.start()

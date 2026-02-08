@@ -1,9 +1,10 @@
 from redis import Redis
 import json
+from datetime import datetime, timezone
 
-from .config import _get_topic_partition_data_key, _get_channel_subscriber_pre
-from .utils import create_topic, get_topic_meta, _get_partition
-from .redis import SafeRedis
+from .config import _get_topic_partition_data_key, _get_channel_subscriber_pre, _get_msg_id
+from .utils import create_topic, get_topic_meta, _get_partition, _gen_id, _validate_topic, _validate_channel
+from .serializers import JsonSerializer
 
 class RQProducer:
     """
@@ -14,7 +15,7 @@ class RQProducer:
                  port: int = 6379, 
                  username: str = None, 
                  password: str = None,
-                 redis_conn: SafeRedis = None,
+                 redis_conn: Redis = None,
                  serializer = None):
         
         """
@@ -35,7 +36,7 @@ class RQProducer:
         if redis_conn:
             self.conn = redis_conn
         else:
-            self.conn = SafeRedis(host=host, port=port, username=username, password=password)
+            self.conn = Redis(host=host, port=port, username=username, password=password)
 
         if not self._test_conn():
             raise Exception(f"Could not connect to Redis at {host}:{port}.")
@@ -45,6 +46,15 @@ class RQProducer:
         Implements test redis connection.
         """
         return self.conn.ping()
+
+    def _envelope(self, msg: bytes) -> dict:
+        msg_envelope = {
+            "id": _get_msg_id(_gen_id()),
+            "created_at": datetime.now(timezone.utc).timestamp(),
+            "retries": None,
+            "payload": msg.decode("utf-8")
+        }
+        return msg_envelope
     
     def send(self, topic: str, message, partition_key = None):
         """
@@ -53,11 +63,20 @@ class RQProducer:
         Partition is decided based on partition_key. Default partition is 0.
         Message is RPUSH'ed to Redis list
         """
+
+        if not _validate_topic(topic):
+            raise Exception(f"ERROR: RQLite producer cannot send message to topic '{topic}'. Topic name can only be alphanumeric")
+
         try:
             if self.serializer:
                 message = self.serializer.serialize(message)
         except Exception as ex:
             raise Exception(f"Error serializing the message '{message}'")
+
+        if not isinstance(message, bytes):
+            raise Exception("Message should be in bytes, or use an appropriate Serializer.")
+
+        message = JsonSerializer.serialize(self._envelope(message))
         
         topic_metadata: dict = get_topic_meta(self.conn, topic)
         if not topic_metadata:
@@ -68,10 +87,9 @@ class RQProducer:
         
         partition = _get_partition(partition_key, topic_metadata.get("partitions", 1))
 
-        self.conn.rpush(_get_topic_partition_data_key(topic, partition), message)     
+        self.conn.rpush(_get_topic_partition_data_key(topic, partition), message)
         
         return True
-
 
     def broadcast(self, channel: str, message):
         """
@@ -86,9 +104,12 @@ class RQProducer:
         except Exception as ex:
             raise Exception(f"Error serializing the message '{message}")
 
-        channel_subscriber_keys = [key.decode("utf-8") for key in self.conn.keys(f"{_get_channel_subscriber_pre(channel)}*")]
+        if not _validate_channel(channel):
+            raise Exception(f"ERROR: RQLite producer cannot broadcast to channel '{channel}'. Channel name can only be alphanumeric")
 
-        for subscriber_key in channel_subscriber_keys:
+        # channel_subscriber_keys = [key.decode("utf-8") for key in self.conn.keys(f"{_get_channel_subscriber_pre(channel)}*")]
+        for key in self.conn.scan_iter(match=f"{_get_channel_subscriber_pre(channel)}*", count=100):
+            subscriber_key = key.decode("utf-8")
             channel_data_subscriber_key = self.conn.get(subscriber_key)
             if not channel_data_subscriber_key:
                 continue
@@ -96,4 +117,3 @@ class RQProducer:
             self.conn.rpush(channel_data_subscriber_key, message)
 
         return True
-
