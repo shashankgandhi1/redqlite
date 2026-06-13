@@ -15,6 +15,9 @@ DLQ_SUFFIX = "dlq"
 TOPIC_REGEX = "[A-Za-z0-9]+"
 CHANNEL_REGEX = "[A-Za-z0-9]+"
 
+REDIS_TIMEOUT_RETRY_INIT = 2
+REDIS_TIMEOUT_RETRY_MAX = 30
+
 def _get_topic_meta_key(topic):
 	return f"{KEY_PREFIX}-{TOPIC_LABEL}-{topic}-{META_SUFFIX}"
 

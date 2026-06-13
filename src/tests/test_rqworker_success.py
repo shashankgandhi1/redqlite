@@ -1,6 +1,6 @@
 from redqlite.producer import RQProducer
 from redqlite.worker import RQWorker, RQWorkerPool
-from redqlite.subscriber import RQSubscriber
+# from redqlite.subscriber import RQSubscriber
 from redqlite.serializers import StringSerializer
 from redqlite.utils import create_topic
 
@@ -11,9 +11,13 @@ from redis import Redis
 
 logging.basicConfig(level=logging.INFO)
 
-create_topic(Redis(host="localhost", port=6379), "allmsgs", 4)
+conn = Redis(host="localhost", port=6379)
 
-rqproducer = RQProducer(serializer=StringSerializer)
+conn.flushall()
+
+create_topic(conn, "allmsgs", 4)
+
+rqproducer = RQProducer(redis_conn=conn, serializer=StringSerializer)
 
 
 def callback_fn(msg, **kwargs):
@@ -23,12 +27,6 @@ def callback_fn(msg, **kwargs):
 
 rqworker = RQWorker(topic="allmsgs", timeout_ms=10000, callback=callback_fn)
 rqworker_pool = RQWorkerPool(topic="allmsgs", timeout_ms=10000, callback=callback_fn, num_workers=2)
-
-rqsub1 = RQSubscriber(channel="testchannel", callback=callback_fn)
-rqsub2 = RQSubscriber(channel="testchannel", callback=callback_fn)
-rqsub3 = RQSubscriber(channel="testchannel", callback=callback_fn)
-rqsub4 = RQSubscriber(channel="testchannel", callback=callback_fn)
-rqsub5 = RQSubscriber(channel="testchannel", callback=callback_fn)
 
 if __name__ == "__main__":
     print("Sending messages to queue")
@@ -48,36 +46,14 @@ if __name__ == "__main__":
     rqproducer.send("allmsgs", "world hello 11", "cc")
     rqproducer.send("allmsgs", "world hello 12", "dd")
 
-    # print("Broadcasting messages")
-
-    # rqproducer.broadcast("testchannel", "hello world")
-
     print("Starting RQWorker")
 
     rqworker_pool.start()
-    # rqsub1.start()
-    # rqsub2.start()
-    # rqsub3.start()
-    # rqsub4.start()
-    # rqsub5.start()
-
-    # rqproducer.broadcast("testchannel", "hello world 2")
 
     print("keep program alive")
-    for i in range(2):
-        time.sleep(1)
-
-    # rqproducer.broadcast("testchannel", "hello world 3")
 
     for i in range(30):
         time.sleep(1)
     
     print("Stopping rqworker")
     rqworker_pool.stop()
-
-    # print("Stopping RQSubscriber")
-    # rqsub1.stop()
-    # rqsub2.stop()
-    # rqsub3.stop()
-    # rqsub4.stop()
-    # rqsub5.stop()
