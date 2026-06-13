@@ -1,12 +1,14 @@
 from redis import Redis
+from redis import exceptions as RedisExceptions
 from typing import Callable
 import threading
 import time
 import logging
 # import traceback
 
-from .utils import _gen_id, get_topic_meta, create_topic, _validate_topic
+from .utils import _gen_id, get_topic_meta, _create_topic, _validate_topic
 from .config import _get_topic_partition_data_key, _get_topic_partition_worker_key, _get_lock_key, _get_topic_partition_processing_key, _get_topic_dlq_key
+from .config import REDIS_TIMEOUT_RETRY_INIT, REDIS_TIMEOUT_RETRY_MAX
 from .serializers import JsonSerializer
 from .scripts import LUAREDIS_LPOP_TO_KEY, LUAREDIS_KEY_TO_RPUSH
 from .errors import ConnectionError
@@ -72,7 +74,7 @@ class RQWorker:
         """
         topic_metadata = get_topic_meta(self.conn, self.topic)
         if not topic_metadata:
-            topic_metadata = create_topic(self.conn, self.topic)
+            topic_metadata = _create_topic(self.conn, self.topic)
         
         # Fetch number of messages in all partition queues
         if self._partition is not None:
@@ -182,7 +184,7 @@ class RQWorker:
             try:
                 worker_id_bytes: bytes = self.conn.get(topic_partition_key)
                 if not worker_id_bytes:
-                    self.conn.set(topic_partition_key, self.id, ex=int(self.timeout_ms/1000))
+                    self.conn.set(topic_partition_key, self.id, ex=int(self.timeout_ms / 1000))
                     is_attached = True
             finally:
                 lock.release()
@@ -237,7 +239,9 @@ class RQWorker:
         return
         
     def run(self):
+        redis_timeout = REDIS_TIMEOUT_RETRY_INIT
         while self._running:
+            msg_envelope = None
             try:
                 msg_envelope = self.poll()
 
@@ -266,12 +270,20 @@ class RQWorker:
             except ConnectionError as cex:
                 logging.error(str(cex))
 
+            except (RedisExceptions.ConnectionError, RedisExceptions.TimeoutError) as rex:
+                logging.critical(f"ERROR: {type(rex).__name__}: {str(rex)}. Freezing worker {self.id} on queue {self.topic}-{self._partition} for {redis_timeout} seconds")
+                time.sleep(redis_timeout)
+                redis_timeout = min(redis_timeout * 2, REDIS_TIMEOUT_RETRY_MAX)
+                continue
+
             except Exception as ex:
                 # traceback.print_exc()
-                msg_envelope["err"] = f"{type(ex).__name__}: {str(ex)}"
-                self.commit(msg_envelope)
-                logging.error(f"{type(ex).__name__}: {str(ex)}. Worker {self.id} failed to run callback function '{self.callback.__name__}' for message '{msg}' on topic {self.topic}-{self._partition}.")
-            
+                if msg_envelope and isinstance(msg_envelope, dict):
+                    msg_envelope["err"] = f"{type(ex).__name__}: {str(ex)}"
+                    logging.error(f"{type(ex).__name__}: {str(ex)}. Worker {self.id} failed to run callback function '{self.callback.__name__}' for message '{msg}' on topic {self.topic}-{self._partition}.", exc_info=True)
+                    self.commit(msg_envelope)
+                else:
+                    logging.error(f"{type(ex).__name__}: {str(ex)}. Worker {self.id} failed before reaching callback function. No message found", exc_info=True)
             finally:                
                 self._processing = False
 
