@@ -74,7 +74,7 @@ class RQWorker:
         """
         topic_metadata = get_topic_meta(self.conn, self.topic)
         if not topic_metadata:
-            topic_metadata = _create_topic(self.conn, self.topic)
+            topic_metadata = _create_topic(self.conn, self.topic, 1)
         
         # Fetch number of messages in all partition queues
         if self._partition is not None:
@@ -242,6 +242,7 @@ class RQWorker:
         redis_timeout = REDIS_TIMEOUT_RETRY_INIT
         while self._running:
             msg_envelope = None
+            msg = None
             try:
                 msg_envelope = self.poll()
 
